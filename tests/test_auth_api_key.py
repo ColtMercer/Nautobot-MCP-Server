@@ -1,7 +1,8 @@
 import os
 from contextlib import contextmanager
 
-from starlette.testclient import TestClient
+import httpx
+import pytest
 
 from nautobot_mcp_server.server import server
 from nautobot_mcp_server.settings import get_settings
@@ -24,11 +25,13 @@ def set_env(**env):
         get_settings.cache_clear()  # type: ignore[attr-defined]
 
 
-def test_tools_requires_api_key_when_enabled() -> None:
-    with set_env(AUTH_MODE="api_key", API_KEYS="abc123"):
-        client = TestClient(server.app)
-        r = client.get("/tools")
-        assert r.status_code == 401
-        r2 = client.get("/tools", headers={"X-API-Key": "abc123"})
-        assert r2.status_code == 200
-
+@pytest.mark.anyio("asyncio")
+async def test_tools_requires_api_key_when_enabled() -> None:
+    with set_env(AUTH_MODE="api_key", API_KEYS='["abc123"]'):
+        app = server.streamable_http_app()
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.get("/tools")
+            assert r.status_code == 401
+            r2 = await client.get("/tools", headers={"X-API-Key": "abc123"})
+            assert r2.status_code == 200

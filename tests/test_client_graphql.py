@@ -47,4 +47,3 @@ def test_get_devices_by_location_graphql_error() -> None:
         assert "GraphQL errors" in str(e)
     else:
         assert False, "Expected RuntimeError"
-

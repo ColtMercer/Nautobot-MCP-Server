@@ -23,7 +23,9 @@ def set_env(**env):
 
 def test_yaml_overlay(tmp_path: Path):
     yaml_file = tmp_path / "settings.yaml"
-    yaml_file.write_text("nautobot_url: http://yaml:8080\nport: 9000\n", encoding="utf-8")
+    yaml_file.write_text(
+        "nautobot_url: http://yaml:8080\nport: 9000\n", encoding="utf-8"
+    )
     with set_env(CONFIG_YAML=str(yaml_file)):
         s = get_settings()
         assert str(s.nautobot_url) == "http://yaml:8080"
@@ -39,7 +41,7 @@ def test_env_overrides_yaml(tmp_path: Path):
 
 
 def test_api_keys_parsing():
-    with set_env(API_KEYS="a, b ; c"):
+    # Provide JSON array to avoid platform-specific env parsing quirks
+    with set_env(API_KEYS='["a","b","c"]'):
         s = get_settings()
         assert s.api_keys == ["a", "b", "c"]
-

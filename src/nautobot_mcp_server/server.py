@@ -1,24 +1,18 @@
 """FastMCP server for Nautobot integration."""
 
-import os
-from typing import Any, Dict, List
+from typing import Any
 
 import structlog
+from fastapi import Depends, HTTPException, status
+from fastapi.security import APIKeyHeader
 from fastmcp.server import FastMCP
 from fastmcp.tools import Tool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from fastapi import Depends, HTTPException, status
-from fastapi.security import APIKeyHeader
-from .settings import get_settings
 
-from .tools.prefixes import (
-    get_prefixes_by_location,
-)
-from .tools.devices import (
-    get_devices_by_location,
-    get_devices_by_location_and_role,
-)
+from .settings import get_settings
+from .tools.devices import get_devices_by_location, get_devices_by_location_and_role
+from .tools.prefixes import get_prefixes_by_location
 
 # Configure structured logging
 structlog.configure(
@@ -31,7 +25,7 @@ structlog.configure(
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ],
     context_class=dict,
     logger_factory=structlog.stdlib.LoggerFactory(),
@@ -45,58 +39,68 @@ logger = structlog.get_logger(__name__)
 server = FastMCP(
     name="nautobot-mcp-server",
     instructions="FastMCP server exposing Nautobot GraphQL API as MCP tools",
-    version="0.1.0"
+    version="0.1.0",
 )
 # Security dependencies (API Key)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-def require_auth(settings=Depends(get_settings), api_key: str | None = Depends(api_key_header)):
+def require_auth(
+    settings=Depends(get_settings), api_key: str | None = Depends(api_key_header)
+):
     if settings.auth_mode == "none":
         return True
     if settings.auth_mode == "api_key":
         allowed = set(settings.api_keys)
         if not api_key or api_key not in allowed:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key"
+            )
         return True
     # Placeholder for other modes
     return True
 
+
 # Create tools from existing functions
-def get_prefixes_tool(location_name: str, format: str = "json") -> Dict[str, Any]:
+def get_prefixes_tool(location_name: str, format: str = "json") -> dict[str, Any]:
     """Get prefixes by location name with multiple output formats.
-    
+
     Args:
         location_name: The name of the location (e.g., "HQ-Dallas", "LAB-Austin")
         format: Output format - "json", "table", "dataframe", or "csv"
-        
+
     Returns:
         Dictionary containing prefixes data in the requested format
     """
     return get_prefixes_by_location(location_name, format)
 
-def get_devices_by_location_tool(location_name: str) -> Dict[str, Any]:
+
+def get_devices_by_location_tool(location_name: str) -> dict[str, Any]:
     """Get devices by location name.
-    
+
     Args:
         location_name: The name of the location (e.g., "NY Data Center", "Campus A")
-        
+
     Returns:
         Dictionary containing device data in JSON format
     """
     return get_devices_by_location(location_name)
 
-def get_devices_by_location_and_role_tool(location_name: str, role_name: str) -> Dict[str, Any]:
+
+def get_devices_by_location_and_role_tool(
+    location_name: str, role_name: str
+) -> dict[str, Any]:
     """Get devices by location and role.
-    
+
     Args:
         location_name: The name of the location (e.g., "NY Data Center", "Campus A")
         role_name: The name of the device role (e.g., "WAN Router", "Access Switch")
-        
+
     Returns:
         Dictionary containing device data in JSON format
     """
     return get_devices_by_location_and_role(location_name, role_name)
+
 
 # Create Tool instances
 prefixes_tool = Tool.from_function(
@@ -113,7 +117,7 @@ prefixes_tool = Tool.from_function(
 
         Returns:
             JSON object with fields: success, message, count, data (list of prefixes)
-        """
+        """,
 )
 
 devices_by_location_tool = Tool.from_function(
@@ -129,7 +133,7 @@ devices_by_location_tool = Tool.from_function(
 
         Returns:
             JSON object with fields: success, message, count, data (list of devices with name, status, role, device_type, platform, primary_ip4, location, description)
-        """
+        """,
 )
 
 devices_by_location_and_role_tool = Tool.from_function(
@@ -152,7 +156,7 @@ devices_by_location_and_role_tool = Tool.from_function(
 
         Returns:
             JSON object with fields: success, message, count, data (list of devices with name, status, role, device_type, platform, primary_ip4, location, description)
-        """
+        """,
 )
 
 # Add tools to the server
@@ -160,50 +164,73 @@ server.add_tool(prefixes_tool)
 server.add_tool(devices_by_location_tool)
 server.add_tool(devices_by_location_and_role_tool)
 
+
 # Add custom REST endpoints for chat UI compatibility
 @server.custom_route("/tools", methods=["GET"])
 async def get_tools(request: Request, _: bool = Depends(require_auth)) -> JSONResponse:
     """Get list of available tools in REST format."""
+    # Ensure auth applies regardless of transport wiring
+    settings = get_settings()
+    if settings.auth_mode == "api_key":
+        api_key = request.headers.get("X-API-Key")
+        if not api_key or api_key not in set(settings.api_keys):
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
     tools = []
     tools_dict = await server.get_tools()
     for tool in tools_dict.values():
-        tools.append({
-            "name": tool.name,
-            "description": tool.description,
-            "input_schema": tool.parameters,
-            "output_schema": tool.output_schema
-        })
+        tools.append(
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.parameters,
+                "output_schema": tool.output_schema,
+            }
+        )
     return JSONResponse({"tools": tools})
 
+
 @server.custom_route("/tools/invoke", methods=["POST"])
-async def invoke_tool(request: Request, _: bool = Depends(require_auth)) -> JSONResponse:
+async def invoke_tool(
+    request: Request, _: bool = Depends(require_auth)
+) -> JSONResponse:
     """Invoke a tool by name with arguments."""
     try:
+        # Route-level auth guard
+        settings = get_settings()
+        if settings.auth_mode == "api_key":
+            api_key = request.headers.get("X-API-Key")
+            if not api_key or api_key not in set(settings.api_keys):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
         # Parse request body
         body = await request.json()
         tool_name = body.get("tool_name")
         args = body.get("args", {})
-        
+
         if not tool_name:
             return JSONResponse({"error": "tool_name is required"}, status_code=400)
-        
+
         # Get the tool
         tool = await server.get_tool(tool_name)
         if not tool:
-            return JSONResponse({"error": f"Tool '{tool_name}' not found"}, status_code=404)
-        
+            return JSONResponse(
+                {"error": f"Tool '{tool_name}' not found"}, status_code=404
+            )
+
         # Call the tool function
-        result = tool.fn(**args)
-        
+        # Tool type from fastmcp lacks precise typing; ignore for mypy
+        result = tool.fn(**args)  # type: ignore[attr-defined]
+
         return JSONResponse({"result": result})
     except Exception as e:
         logger.error("Error invoking tool", error=str(e))
         return JSONResponse({"error": str(e)}, status_code=500)
 
+
 @server.custom_route("/healthz", methods=["GET"])
 async def health_check(request: Request) -> JSONResponse:
     """Health check endpoint."""
     return JSONResponse({"status": "ok", "service": "nautobot-mcp-server"})
+
 
 def main() -> None:
     """Entry point for running the FastMCP server."""
@@ -213,11 +240,7 @@ def main() -> None:
     _log_level = settings.log_level
 
     # Run the FastMCP server
-    server.run(
-        transport="streamable-http",
-        host=host,
-        port=port
-    )
+    server.run(transport="streamable-http", host=host, port=port)
 
 
 if __name__ == "__main__":

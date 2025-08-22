@@ -1,8 +1,8 @@
-from nautobot_mcp_server.tools.prefixes import get_prefixes_by_location
 from nautobot_mcp_server.tools.devices import (
     get_devices_by_location,
     get_devices_by_location_and_role,
 )
+from nautobot_mcp_server.tools.prefixes import get_prefixes_by_location
 
 
 class DummyClient:
@@ -17,7 +17,6 @@ class DummyClient:
 
 
 def test_prefixes_tool(monkeypatch):
-    from nautobot_mcp_server import tools as tools_pkg  # type: ignore
     from nautobot_mcp_server.clients import nautobot_graphql
 
     monkeypatch.setattr(nautobot_graphql, "client", DummyClient())
@@ -34,4 +33,3 @@ def test_devices_tools(monkeypatch):
     assert r1["count"] == 1
     r2 = get_devices_by_location_and_role("DC1", "Core")
     assert r2["count"] == 1
-
