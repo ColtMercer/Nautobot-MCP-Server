@@ -1,0 +1,25 @@
+version: '3.9'
+services:
+  api:
+    build:
+      context: .
+      dockerfile: src/Dockerfile
+    environment:
+      - NAUTOBOT_URL=${NAUTOBOT_URL:-http://nautobot:8080}
+      - NAUTOBOT_TOKEN=${NAUTOBOT_TOKEN:-replace-me}
+      - AUTH_MODE=${AUTH_MODE:-none}
+      - API_KEYS=${API_KEYS:-}
+    ports:
+      - "7001:7001"
+  chainlit:
+    build:
+      context: ./chainlit_app
+      dockerfile: Dockerfile
+    environment:
+      - API_BASE_URL=http://api:7001
+      - API_KEY=${API_KEY:-}
+    depends_on:
+      - api
+    ports:
+      - "8000:8000"
+

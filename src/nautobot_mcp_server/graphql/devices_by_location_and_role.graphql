@@ -1,0 +1,28 @@
+query DevicesByLocationAndRole($location: String!, $role: String!) {
+  devices(location: [$location], role: [$role]) {
+    name
+    status {
+      name
+    }
+    role {
+      name
+    }
+    device_type {
+      model
+      manufacturer {
+        name
+      }
+    }
+    platform {
+      name
+    }
+    primary_ip4 {
+      address
+    }
+    location {
+      name
+    }
+  }
+}
+
+

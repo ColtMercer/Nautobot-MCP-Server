@@ -1,0 +1,17 @@
+query PrefixesByLocation($name: String!) {
+  prefixes(locations: [$name]) {
+    prefix
+    status {
+      name
+    }
+    role {
+      name
+    }
+    description
+    locations {
+      name
+    }
+  }
+}
+
+

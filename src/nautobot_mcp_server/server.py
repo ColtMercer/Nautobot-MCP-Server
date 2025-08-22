@@ -1,0 +1,224 @@
+"""FastMCP server for Nautobot integration."""
+
+import os
+from typing import Any, Dict, List
+
+import structlog
+from fastmcp.server import FastMCP
+from fastmcp.tools import Tool
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from fastapi import Depends, HTTPException, status
+from fastapi.security import APIKeyHeader
+from .settings import get_settings
+
+from .tools.prefixes import (
+    get_prefixes_by_location,
+)
+from .tools.devices import (
+    get_devices_by_location,
+    get_devices_by_location_and_role,
+)
+
+# Configure structured logging
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.processors.JSONRenderer()
+    ],
+    context_class=dict,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=True,
+)
+
+logger = structlog.get_logger(__name__)
+
+# Create FastMCP server
+server = FastMCP(
+    name="nautobot-mcp-server",
+    instructions="FastMCP server exposing Nautobot GraphQL API as MCP tools",
+    version="0.1.0"
+)
+# Security dependencies (API Key)
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def require_auth(settings=Depends(get_settings), api_key: str | None = Depends(api_key_header)):
+    if settings.auth_mode == "none":
+        return True
+    if settings.auth_mode == "api_key":
+        allowed = set(settings.api_keys)
+        if not api_key or api_key not in allowed:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+        return True
+    # Placeholder for other modes
+    return True
+
+# Create tools from existing functions
+def get_prefixes_tool(location_name: str, format: str = "json") -> Dict[str, Any]:
+    """Get prefixes by location name with multiple output formats.
+    
+    Args:
+        location_name: The name of the location (e.g., "HQ-Dallas", "LAB-Austin")
+        format: Output format - "json", "table", "dataframe", or "csv"
+        
+    Returns:
+        Dictionary containing prefixes data in the requested format
+    """
+    return get_prefixes_by_location(location_name, format)
+
+def get_devices_by_location_tool(location_name: str) -> Dict[str, Any]:
+    """Get devices by location name.
+    
+    Args:
+        location_name: The name of the location (e.g., "NY Data Center", "Campus A")
+        
+    Returns:
+        Dictionary containing device data in JSON format
+    """
+    return get_devices_by_location(location_name)
+
+def get_devices_by_location_and_role_tool(location_name: str, role_name: str) -> Dict[str, Any]:
+    """Get devices by location and role.
+    
+    Args:
+        location_name: The name of the location (e.g., "NY Data Center", "Campus A")
+        role_name: The name of the device role (e.g., "WAN Router", "Access Switch")
+        
+    Returns:
+        Dictionary containing device data in JSON format
+    """
+    return get_devices_by_location_and_role(location_name, role_name)
+
+# Create Tool instances
+prefixes_tool = Tool.from_function(
+    fn=get_prefixes_tool,
+    name="get_prefixes_by_location_enhanced",
+    description="""Get prefixes by location. Returns raw JSON only (LLM handles formatting/analysis).
+
+        Args:
+            location_name: Name of the location. Supports both full names and abbreviations:
+                - Data Centers: "NYDC" or "New York Data Center", "LODC" or "London Data Center"
+                - Campuses: "DACN" or "Dallas Campus", "LOCN" or "London Campus", "KOCN" or "Korea Campus", "BRCN" or "Brazil Campus", "MXCN" or "Mexico Campus"
+                - Branch Offices: "USBN1" or "US Branch Network Branch 1", "USBN2", "MXBN1" or "Mexico Branch Network Branch 1", "MXBN2", "UKBN1" or "UK Branch Network Branch 1", "UKBN2", "BRBN1" or "Brazil Branch Network Branch 1", "BRBN2"
+            format: Ignored. Always returns JSON.
+
+        Returns:
+            JSON object with fields: success, message, count, data (list of prefixes)
+        """
+)
+
+devices_by_location_tool = Tool.from_function(
+    fn=get_devices_by_location_tool,
+    name="get_devices_by_location",
+    description="""Get devices by location. Returns raw JSON only (LLM handles formatting/analysis).
+
+        Args:
+            location_name: Name of the location. Supports both full names and abbreviations:
+                - Data Centers: "NYDC" or "New York Data Center", "LODC" or "London Data Center"
+                - Campuses: "DACN" or "Dallas Campus", "LOCN" or "London Campus", "KOCN" or "Korea Campus", "BRCN" or "Brazil Campus", "MXCN" or "Mexico Campus"
+                - Branch Offices: "USBN1" or "US Branch Network Branch 1", "USBN2", "MXBN1" or "Mexico Branch Network Branch 1", "MXBN2", "UKBN1" or "UK Branch Network Branch 1", "UKBN2", "BRBN1" or "Brazil Branch Network Branch 1", "BRBN2"
+
+        Returns:
+            JSON object with fields: success, message, count, data (list of devices with name, status, role, device_type, platform, primary_ip4, location, description)
+        """
+)
+
+devices_by_location_and_role_tool = Tool.from_function(
+    fn=get_devices_by_location_and_role_tool,
+    name="get_devices_by_location_and_role",
+    description="""Get devices by location and role. Returns raw JSON only (LLM handles formatting/analysis).
+
+        Args:
+            location_name: Name of the location. Supports both full names and abbreviations:
+                - Data Centers: "NYDC" or "New York Data Center", "LODC" or "London Data Center"
+                - Campuses: "DACN" or "Dallas Campus", "LOCN" or "London Campus", "KOCN" or "Korea Campus", "BRCN" or "Brazil Campus", "MXCN" or "Mexico Campus"
+                - Branch Offices: "USBN1" or "US Branch Network Branch 1", "USBN2", "MXBN1" or "Mexico Branch Network Branch 1", "MXBN2", "UKBN1" or "UK Branch Network Branch 1", "UKBN2", "BRBN1" or "Brazil Branch Network Branch 1", "BRBN2"
+            role_name: Name of the device role. Available roles include:
+                - "WAN" (WAN Routers)
+                - "Core" (Core Routers)
+                - "Spine" (Spine Switches in data centers)
+                - "Leaf" (Leaf Switches in data centers)
+                - "Branch Access" (Branch Access Switches)
+                - "Campus Access" (Campus Access Switches)
+
+        Returns:
+            JSON object with fields: success, message, count, data (list of devices with name, status, role, device_type, platform, primary_ip4, location, description)
+        """
+)
+
+# Add tools to the server
+server.add_tool(prefixes_tool)
+server.add_tool(devices_by_location_tool)
+server.add_tool(devices_by_location_and_role_tool)
+
+# Add custom REST endpoints for chat UI compatibility
+@server.custom_route("/tools", methods=["GET"])
+async def get_tools(request: Request, _: bool = Depends(require_auth)) -> JSONResponse:
+    """Get list of available tools in REST format."""
+    tools = []
+    tools_dict = await server.get_tools()
+    for tool in tools_dict.values():
+        tools.append({
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.parameters,
+            "output_schema": tool.output_schema
+        })
+    return JSONResponse({"tools": tools})
+
+@server.custom_route("/tools/invoke", methods=["POST"])
+async def invoke_tool(request: Request, _: bool = Depends(require_auth)) -> JSONResponse:
+    """Invoke a tool by name with arguments."""
+    try:
+        # Parse request body
+        body = await request.json()
+        tool_name = body.get("tool_name")
+        args = body.get("args", {})
+        
+        if not tool_name:
+            return JSONResponse({"error": "tool_name is required"}, status_code=400)
+        
+        # Get the tool
+        tool = await server.get_tool(tool_name)
+        if not tool:
+            return JSONResponse({"error": f"Tool '{tool_name}' not found"}, status_code=404)
+        
+        # Call the tool function
+        result = tool.fn(**args)
+        
+        return JSONResponse({"result": result})
+    except Exception as e:
+        logger.error("Error invoking tool", error=str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@server.custom_route("/healthz", methods=["GET"])
+async def health_check(request: Request) -> JSONResponse:
+    """Health check endpoint."""
+    return JSONResponse({"status": "ok", "service": "nautobot-mcp-server"})
+
+def main() -> None:
+    """Entry point for running the FastMCP server."""
+    settings = get_settings()
+    host = settings.host
+    port = settings.port
+    _log_level = settings.log_level
+
+    # Run the FastMCP server
+    server.run(
+        transport="streamable-http",
+        host=host,
+        port=port
+    )
+
+
+if __name__ == "__main__":
+    main()

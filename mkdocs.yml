@@ -1,0 +1,24 @@
+site_name: Nautobot MCP Server
+site_description: FastMCP server exposing Nautobot GraphQL tools and REST endpoints
+repo_url: https://github.com/your-org/Nautobot-MCP-Server
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.sections
+    - content.code.copy
+nav:
+  - Overview: index.md
+  - Quickstart: quickstart.md
+  - Configuration: configuration.md
+  - Authentication: auth.md
+  - Deploy: deploy.md
+  - API Reference: api.md
+  - Contributing: contributing.md
+  - Security: security.md
+markdown_extensions:
+  - admonition
+  - codehilite
+  - toc:
+      permalink: true
+
