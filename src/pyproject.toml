@@ -41,7 +41,7 @@ dev = [
     "black==23.12.1",
     "isort==5.13.2",
     "ruff==0.1.9",
-    "mypy==1.8.0",
+    "mypy==1.17.1",
     "types-requests>=2.31.0,<3",
 ]
 llm = [
