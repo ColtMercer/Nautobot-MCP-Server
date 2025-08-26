@@ -36,7 +36,7 @@ nautobot_mcp_server = ["graphql/*.graphql"]
 dev = [
     "pytest==7.4.3",
     "pytest-asyncio==0.21.1",
-    "pytest-cov==4.1.0",
+    "pytest-cov==6.2.1",
     "responses==0.25.0",
     "black==23.12.1",
     "isort==5.13.2",
